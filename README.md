@@ -1,22 +1,14 @@
 <H1 align="center">
-YOLOv7 Object Detection with DeepSORT Tracking(ID + Trails) </H1>
-
-## Google Colab File Link (A Single Click Solution)
-The google colab file link for YOLOv7 object detection and tracking is provided below, you can check the implementation in Google Colab, and its a single click implementation, you just need to select the Run Time as GPU, and click on Run All.
-
-[`Google Colab File`](https://colab.research.google.com/drive/1pODFnmwDI4To2bqnyD5OWOYXV8u43iu1?usp=sharing)
-
-
 
 ## Steps to run Code
 
 - Clone the repository
 ```
-git clone https://github.com/MuhammadMoinFaisal/YOLOv7-DeepSORT-Object-Tracking.git
+git clone https://github.com/varshita9/yolov7_deepsort.git
 ```
 - Goto the cloned folder.
 ```
-cd YOLOv7-DeepSORT-Object-Tracking
+cd yolov7_deepsort
 ```
 - Install the dependecies
 ```
@@ -51,7 +43,5 @@ python deep_sort_tracking_id.py --weights yolov7.pt  --img 640  --source test1.m
 #### Vehicles Detection, Tracking and Counting 
 ![](./figure1.png)
 
-#### Vehicles Detection, Tracking and Counting
 
-![](./figure3.png)
 
