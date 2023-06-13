@@ -36,7 +36,7 @@ gdown "https://drive.google.com/uc?id=1rjBn8Fl1E_9d0EMVtL24S9aNQOJAveR5&confirm=
 ```
 python deep_sort_tracking_id.py --weights yolov7.pt  --img 640  --source test3.mp4  
 ```
-
+- put the name of your mp4 video instead of test3 (if it saved in some other name)
 
 
 
