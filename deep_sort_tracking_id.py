@@ -1,8 +1,12 @@
 import argparse
+#The argparse module makes it easy to write user-friendly command-line interfaces.
 import time
 from pathlib import Path
-
+import math
+# To implement object detection and tracking, we need opencv-python library, which is imported as cv2
 import cv2
+#As YOLOv7 is built using PyTorch, To perform object detection/tracking using YOLOv7 we need to improt the PyTorch module.
+#To use the PyTorch library we do, import torch
 import torch
 import torch.backends.cudnn as cudnn
 from numpy import random
@@ -17,12 +21,31 @@ from utils.torch_utils import select_device, load_classifier, time_synchronized,
 
 from deep_sort_pytorch.utils.parser import get_config
 from deep_sort_pytorch.deep_sort import DeepSort
+#Deque (Doubly Ended Queue) in Python is implemented using the module “collections“.
+#Deque is preferred over a list in the cases where we need quicker append and pop operations from both the ends of the container
 from collections import deque
+# To convert a list into an array we use the numpy library
 import numpy as np
+# palette is a tuple containing three integer values. Each value represents the maximum possible value for a specific color component in a color palette.
 palette = (2 ** 11 - 1, 2 ** 15 - 1, 2 ** 20 - 1)
+
+# Initializing a Dictionary by the name data_deque
 data_deque = {}
 
+#Created a Object Counter Dictionary, which will store each of the detected object name with the totalcount, like 4 cars have been
+#detected, 6 trucks in the complete video
+object_counter = {}
 
+#Creating a dictionary, by the name speed_line_queue, using object tracking we will assign a unique id to each of the
+#detected object and in the speed_line_queue dictionary we will store the unique id of each of the detected object as the key
+# with its estimated speed as the value
+speed_line_queue = {}
+
+line = [(244, 440), (1050, 456)]
+
+#In the def xyxy_to_xywh function, we are converting the bounding box output received from YOLOv7
+#to a format that is competible with DeepSORT, Using this function we convert our x any y coordinattes to
+#center coordinates which is x_c and y_c and return the width and height of the bounding boxes
 ##########################################################################################
 def xyxy_to_xywh(*xyxy):
     """" Calculates the relative bounding box from absolute pixel values. """
@@ -36,6 +59,8 @@ def xyxy_to_xywh(*xyxy):
     h = bbox_h
     return x_c, y_c, w, h
 
+#Converting the xy coordinates into another format but in this case we are only looking for Top, Left and width and height
+#This function return the Top Left Coordinates along with the width and heght of the bounding boxes
 def xyxy_to_tlwh(bbox_xyxy):
     tlwh_bboxs = []
     for i, box in enumerate(bbox_xyxy):
@@ -48,6 +73,7 @@ def xyxy_to_tlwh(bbox_xyxy):
         tlwh_bboxs.append(tlwh_obj)
     return tlwh_bboxs
 
+#To compute colors for our classes we select a color from our color palette and return a tuple of colors
 def compute_color_for_labels(label):
     """
     Simple function that adds fixed color depending on the class
@@ -64,6 +90,7 @@ def compute_color_for_labels(label):
         color = [int((p * (label ** 2 - label + 1)) % 255) for p in palette]
     return tuple(color)
 
+#Using the draw_border function i will create a rounded rectangle over the bounding box in which i will then put the text
 def draw_border(img, pt1, pt2, color, thickness, r, d):
     x1,y1 = pt1
     x2,y2 = pt2
@@ -94,6 +121,10 @@ def draw_border(img, pt1, pt2, color, thickness, r, d):
     
     return img
 
+# In UI_box function we are passing cv2.rectangle to create a rectangle around the detected object
+#Plus also we are using cv2.text, to add the label for example what object it is, i.e car, bus, in the rounded rectangle
+#cv2.text will add label in the rounded rectangle which we have created using draw_border
+
 def UI_box(x, img, color=None, label=None, line_thickness=None):
     # Plots one bounding box on image img
     tl = line_thickness or round(0.002 * (img.shape[0] + img.shape[1]) / 2) + 1  # line/font thickness
@@ -107,17 +138,48 @@ def UI_box(x, img, color=None, label=None, line_thickness=None):
 
         cv2.putText(img, label, (c1[0], c1[1] - 2), 0, tl / 3, [225, 255, 255], thickness=tf, lineType=cv2.LINE_AA)
 
+def estimatespeed(Location1, Location2):
+    #Euclidean Distance Formula
+    d_pixel = math.sqrt(math.pow(Location2[0] - Location1[0], 2) + math.pow(Location2[1] - Location1[1], 2))
+    # defining thr pixels per meter
+    ppm = 8
+    d_meters = d_pixel/ppm
+    time_constant = 29*3.6
+    #distance = speed/time
+    speed = d_meters * time_constant
 
+    return int(speed)
+
+def intersect(A, B, C, D):
+    return ccw(A, C, D) != ccw(B, C, D) and ccw(A, B, C) != ccw(A, B, D)
+
+def ccw(A, B, C):
+    return (C[1] - A[1]) * (B[0] - A[0]) > (B[1] - A[1]) * (C[0] - A[0])
+# Return true if line segments AB and CD intersect
+
+
+# In draw_boxes function, i am calling the above UI_box function
+# to draw the bounding boxes around the detected object, assign unique id's to each detected object,adding labels
 
 def draw_boxes(img, bbox, names,object_id, identities=None, offset=(0, 0)):
     #cv2.line(img, line[0], line[1], (46,162,112), 3)
 
+    # As we are doing detection frame by frame, so here i am checking the height and width of the current frame
     height, width, _ = img.shape
+    # We will store the unique id of the detected object, until the object is in the frame, if the object
+    # disappears from the frame, we will remove  the unique id of the object from the list and will also
+    #save the unique id of the new object appearing in the frame
     # remove tracked point from buffer if object is lost
     for key in list(data_deque):
       if key not in identities:
         data_deque.pop(key)
+    # Using .pop key we remove the ID of the object from the data_deque list, if the object is no more in the frame
 
+
+    #Here we will loop through the bounding boxes one by one
+    #So here we have all the four coordinates x1, x2, y1, y2.
+    #x1y1 represents the top left corner of the bounding box and x2y2 represents the bottom right corner of the bounding
+    #box
     for i, box in enumerate(bbox):
         x1, y1, x2, y2 = [int(i) for i in box]
         x1 += offset[0]
@@ -128,20 +190,46 @@ def draw_boxes(img, bbox, names,object_id, identities=None, offset=(0, 0)):
         # code to find center of bottom edge
         center = (int((x2+x1)/ 2), int((y2+y2)/2))
 
-        # get ID of object
+        # get unique ID of object
         id = int(identities[i]) if identities is not None else 0
 
+        #if the new object appears in the frame, so after assigning it a unique id in the above step,
+        #in the next step, we will create a new buffer/ a new list deque which has maximum length of 64,
+        #so as we try to add the 65th element, the first element will be out
         # create new buffer for new object
         if id not in data_deque:  
           data_deque[id] = deque(maxlen= opt.trailslen)
-          #speed_line_queue[id] = [] ##
+          speed_line_queue[id] = [] 
 
+        # Setting a unique color for each object bounding box and rounded rectangle which contains the label
         color = compute_color_for_labels(object_id[i])
+        #Object ID, contains the ID of the object, for example for the Person Class the ID will be zero as per the COCO format
+        #Using the Object ID we find the object name.
         obj_name = names[object_id[i]]
+        # Setting the Label in the Required Format
         label = '{}{:d}'.format("", id) + ":"+ '%s' % (obj_name)
 
-        # add center to buffer
+        #add center to buffer
+        #Using  center position of the bounding box of the tracked object and every time we see the object in the other
+        #frame we will connect centers to form a series of line. Then we will understand path the object took.
         data_deque[id].appendleft(center)
+
+        if len(data_deque [id]) >= 2:
+            
+            if intersect(data_deque[id][0], data_deque[id][1], line[0], line[1]):
+                cv2.line(img, line[0], line[1], (255, 255, 255), 3)
+                obj_speed = estimatespeed(data_deque[id][1], data_deque[id][0])
+                speed_line_queue[id].append(obj_speed)
+                if obj_name not in object_counter:
+                    object_counter[obj_name] = 1
+                else:
+                    object_counter[obj_name] += 1
+
+        try:
+            label = label + " " + str(sum(speed_line_queue[id])//len(speed_line_queue[id])) + "km/h"
+        except:
+            pass
+
         UI_box(box, img, label=label, color=color, line_thickness=2)
         # draw trail
         for i in range(1, len(data_deque[id])):
@@ -152,7 +240,13 @@ def draw_boxes(img, bbox, names,object_id, identities=None, offset=(0, 0)):
             thickness = int(np.sqrt(opt.trailslen / float(i + i)) * 1.5)
             # draw trails
             cv2.line(img, data_deque[id][i - 1], data_deque[id][i], color, thickness)
+        
+    for idx, (key, value) in enumerate(object_counter.items()):
+        cnt_str = str(key) + ": " + str(value)
+        cv2.line(img, (width - 150 ,25+ (idx*40)), (width,25 + (idx*40)), [85,45,255], 30)
+        cv2.putText(img, cnt_str, (width - 150, 35 + (idx*40)), 0, 1, [225, 255, 255], thickness=2, lineType=cv2.LINE_AA)
     return img
+    
 def load_classes(path):
     # Loads *.names file at 'path'
     with open(path, 'r') as f:
@@ -331,6 +425,8 @@ def detect(save_img=False):
 
 
 if __name__ == '__main__':
+    # record start time
+    start = time.time()
     parser = argparse.ArgumentParser()
     parser.add_argument('--weights', nargs='+', type=str, default='yolov7.pt', help='model.pt path(s)')
     parser.add_argument('--source', type=str, default='inference/images', help='source')  # file/folder, 0 for webcam
@@ -363,3 +459,6 @@ if __name__ == '__main__':
                 strip_optimizer(opt.weights)
         else:
             detect()
+    
+    end = time.time()
+    print("The time of execution of above program is :", (end-start) * 10**3, "ms")
